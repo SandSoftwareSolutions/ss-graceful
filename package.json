@@ -1,0 +1,43 @@
+{
+  "name": "@sandsoftwaresolutions/graceful",
+  "version": "0.1.0",
+  "description": "Shut down a Node HTTP server politely: readiness, finishing requests, closing keep-alive connections, running hooks, with a time limit.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "graceful-shutdown",
+    "sigterm",
+    "docker",
+    "http"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandSoftwareSolutions/ss-graceful.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandSoftwareSolutions/ss-graceful/issues"
+  },
+  "homepage": "https://github.com/SandSoftwareSolutions/ss-graceful#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
