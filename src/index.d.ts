@@ -5,9 +5,9 @@ export interface GracefulOptions {
   server: Server | HttpsServer;
   /** Run one by one after the server has stopped, for example closing the database. */
   hooks?: Array<() => void | Promise<void>>;
-  /** Total time for running requests and hooks. Default 10000. */
+  /** Total time for the drain, the running requests and the hooks. Default 10000. */
   timeoutMs?: number;
-  /** Wait this long after readiness turns to "shutting down" before the server stops. Default 0. */
+  /** Wait this long after readiness turns to "shutting down" before the server stops. Default 0. Must be less than timeoutMs (RangeError). */
   drainMs?: number;
   /** Default: SIGTERM and SIGINT. */
   signals?: string[];

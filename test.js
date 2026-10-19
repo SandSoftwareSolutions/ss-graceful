@@ -119,3 +119,90 @@ test("shutdown is only run once and bad options are rejected", async () => {
   assert.throws(() => gracefulShutdown({ server, timeoutMs: 0 }), RangeError);
   assert.throws(() => gracefulShutdown({ server, drainMs: -1 }), RangeError);
 });
+
+// ---- review additions ----
+
+test("after shutdown() has resolved no timer is left that keeps the process alive", async () => {
+  const server = createServer((req, res) => res.end("ok"));
+  await listen(server);
+  const timers = () => process.getActiveResourcesInfo().filter((n) => n === "Timeout").length;
+  const before = timers();
+  const g = gracefulShutdown({ server, proc: new EventEmitter(), timeoutMs: 30_000, hooks: [() => {}, async () => {}] });
+  assert.deepEqual(await g.shutdown(), { code: 0, forced: false });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(timers(), before, "timers for the time limit are still running");
+});
+
+test("a shutdown started from code does not turn the first signal into 'a second signal'", async () => {
+  const server = createServer((req, res) => res.end("ok"));
+  await listen(server);
+  const proc = new EventEmitter();
+  const exits = [];
+  const g = gracefulShutdown({ server, proc, exit: (code) => exits.push(code), hooks: [() => new Promise((r) => setTimeout(r, 100))] });
+  const done = g.shutdown("fatal error");
+  proc.emit("SIGTERM"); // Docker stops the container while we are already stopping
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(exits, [], "it must wait for the hooks");
+  await done;
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(exits, [0]);
+  proc.emit("SIGTERM"); // now it really is the second one
+  assert.deepEqual(exits, [0, 1]);
+});
+
+test("a log function that throws cannot break the shutdown or leave a rejection behind", async () => {
+  const server = createServer((req, res) => res.end("ok"));
+  await listen(server);
+  const proc = new EventEmitter();
+  const exits = [];
+  const g = gracefulShutdown({ server, proc, exit: (code) => exits.push(code), log: () => { throw new Error("disk full"); }, hooks: [() => {}] });
+  proc.emit("SIGINT");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(exits, [0]);
+  assert.deepEqual(await g.shutdown(), { code: 0, forced: false });
+});
+
+test("hooks must be an array of functions, drainMs must leave time for the rest", () => {
+  const server = createServer(() => {});
+  assert.throws(() => gracefulShutdown({ server, proc: new EventEmitter(), hooks: () => {} }), TypeError);
+  assert.throws(() => gracefulShutdown({ server, proc: new EventEmitter(), hooks: ["x"] }), TypeError);
+  assert.throws(() => gracefulShutdown({ server, proc: new EventEmitter(), timeoutMs: 1000, drainMs: 1000 }), RangeError);
+  assert.throws(() => gracefulShutdown({ server, proc: new EventEmitter(), timeoutMs: 1000, drainMs: 5000 }), RangeError);
+  assert.throws(() => gracefulShutdown({ server, proc: new EventEmitter(), signals: "SIGTERM" }), TypeError);
+});
+
+// A real process with real signals (Windows has no SIGTERM to send, so it is skipped there).
+const real = (hookMs) => `
+import { createServer } from "node:http";
+import { gracefulShutdown } from ${JSON.stringify(new URL("./src/index.js", import.meta.url).href)};
+const server = createServer((req, res) => res.end("ok"));
+gracefulShutdown({ server, timeoutMs: 5000, log: (m) => console.log(m), hooks: [() => new Promise((r) => setTimeout(r, ${hookMs}))] });
+server.listen(0, "127.0.0.1", () => console.log("ready"));
+`;
+
+const runChild = async (hookMs, signals) => {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, ["--input-type=module", "-e", real(hookMs)], { stdio: ["ignore", "pipe", "inherit"] });
+  let out = "";
+  const closed = new Promise((resolve) => child.on("close", (code, signal) => resolve({ code, signal, out })));
+  await new Promise((resolve) => child.stdout.on("data", (d) => { out += d; if (out.includes("ready")) resolve(); }));
+  child.stdout.on("data", (d) => (out += d));
+  for (const [signal, delay] of signals) {
+    await new Promise((r) => setTimeout(r, delay));
+    child.kill(signal);
+  }
+  return closed;
+};
+
+test("a real SIGTERM stops the process cleanly with exit code 0", { skip: process.platform === "win32" }, async () => {
+  const result = await runChild(50, [["SIGTERM", 0]]);
+  assert.deepEqual([result.code, result.signal], [0, null]);
+  assert.match(result.out, /stopped cleanly/);
+});
+
+test("a real second signal exits at once with code 1, while a hook hangs", { skip: process.platform === "win32" }, async () => {
+  const started = Date.now();
+  const result = await runChild(60_000, [["SIGTERM", 0], ["SIGINT", 200]]);
+  assert.deepEqual([result.code, result.signal], [1, null]);
+  assert.ok(Date.now() - started < 3000);
+});

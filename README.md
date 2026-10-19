@@ -33,17 +33,18 @@ server.listen(3000);
 
 ## What happens on SIGTERM or SIGINT
 
-1. Readiness turns to 503 (`drainMs`, if set, gives a load balancer time to notice).
+1. Readiness turns to 503 (`drainMs`, if set, gives a load balancer time to notice; it counts against `timeoutMs` and must be smaller than it).
 2. The server stops accepting connections and closes the idle keep-alive ones.
 3. Running requests get time to finish. After `timeoutMs` the rest are cut.
 4. Your `hooks` run one by one. A hook that fails or hangs is logged and does not stop the others.
 5. The process exits with 0, or with 1 if anything had to be forced or failed.
 
-A second signal while this is going on exits at once.
+A second *signal* while this is going on exits at once (with code 1). A shutdown you started yourself with `g.shutdown()` does not count as a first signal: a SIGTERM that arrives while it runs waits for it and exits with its code.
 
 ## Good to know
 
 - `g.shutdown()` starts the same sequence from code (for example after a fatal error) and resolves with `{ code, forced }`. It does not exit the process itself.
 - `g.isShuttingDown()` for your own checks; `g.dispose()` removes the signal listeners (tests).
+- `hooks` must be an array of functions and `log` may throw without harm. No timer is left running after the shutdown, so the process can end by itself if you do not call `process.exit`.
 - Docker waits 10 seconds by default before it kills a container; keep `timeoutMs` below your `stop_grace_period`.
 - Works with `http` and `https` servers, and with frameworks that give you the server (Express: `app.listen` returns it).
