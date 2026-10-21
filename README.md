@@ -10,6 +10,8 @@ Stop a Node HTTP server politely. When Docker, systemd or a Raspberry Pi says "s
 npm install @sandsoftwaresolutions/graceful
 ```
 
+Works with `import` and `require()`, and ships TypeScript types for both.
+
 ## Usage
 
 ```js
